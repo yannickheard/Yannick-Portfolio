@@ -1,0 +1,305 @@
+---
+title: "OM380.17: Supply Chain Analytics - MSBA"
+subtitle: "Solution to Assignment #2"
+output: html_notebook
+---
+
+In this assignment we will focus on estimation of electricity generation in the US through December 2022 (63 months into the future).  We will base our analysis on the monthly data (index) provided by the Federal Reserve in https://fred.stlouisfed.org/series/IPG2211N 
+
+
+```{r}
+library(fpp)
+library(dplyr)
+
+PG <- read.csv("IPG2211N.csv") %>%
+  select(-DATE) %>%
+  ts(start=c(1972,1), frequency=12)
+plot(PG)
+abline(v=c(2005,1), col="gray")
+```
+
+Initially we will set up as training data the series from January 1972 through December 1995, and the testing set as the data from January 1996 through December 2000.  First we will analyze the data during the growth period. To keep consistency across the class, please execute the following two command to generate the training and testing data sets as indicated:
+
+```{r}
+PG1.tr <- window(PG, end=c(1995,12))
+PG1.te <- window(PG, start=c(1996,1), end=c(2000,12))
+```
+
+####1.	(5 pts.) Preliminary analysis of training data:
+*	Obtain the Box-Cox transformation parameter lambda for the training set PG1.tr
+
+*	Use the tsdisplay(…, lag=48) function to examine ACF and PACF of the Box-Cox transformed series with a non-seasonal difference.  Do the differenced and transformed series look stationary?
+
+
+```{r}
+L = BoxCox.lambda(PG1.tr)
+tsdisplay(diff(BoxCox(PG1.tr,L)), lag=48)
+```
+
+*The above transformed and differenced series does not look stationary. It has too many significant autocorrelations in the ACF.*
+
+*	Use the tsdisplay(…, lag=48) function to examine ACF and PACF of the Box-Cox transformed series with a seasonal difference.  Do the differenced and transformed series look stationary?
+
+```{r}
+
+tsdisplay(diff(BoxCox(PG1.tr,L),12), lag=48)
+```
+
+*The above transformed and differenced series does not look stationary either. It has too many significant autocorrelations in the ACF (somewhat slow decay).*
+
+*	Use the tsdisplay(…, lag=48) function to examine ACF and PACF of the Box-Cox transformed series with both a seasonal difference and a non-seasonal difference.  Do the differenced and transformed series look stationary?
+
+
+```{r}
+tsdisplay(diff(diff(BoxCox(PG1.tr,L),12)), lag=48)
+```
+
+*The above transformed and differenced series does look stationary.*
+
+*	Run the adf.test(…) on the above series.  What do you conclude from the test?
+
+
+```{r}
+adf.test(BoxCox(PG1.tr,L))
+adf.test(diff(BoxCox(PG1.tr,L)))
+adf.test(diff(BoxCox(PG1.tr,L),12))
+adf.test(diff(diff(BoxCox(PG1.tr,L),12)))
+```
+
+*All time series, including the undiffernced one pass the ADF test!.*
+
+*	If you were to fit an ARIMA model to each of the (three) differenced series you obtained above, what would be the maximum order of the (p,d,q) (P,D,Q)_12  model in each case? (i.e., what is the maximum values of p,P,q  and Q for each of the value combinations of d and D?) 
+
+*Non-seasonally differenced series, $d=1$ and $D=0$: $max.p=5$, $max.q=9$, $max.P=3$, and $max.Q=4$.*
+
+*Seasonally differenced series, $d=0$ and $D=1$: $max.p=6$, although I would be inclined to try also 1, $max.q=7$, $max.P=2$, and $max.Q=1$.*
+
+*Seasonally and Non-seasonally differenced series, $d=1$ and $D=1$: $max.p=4$, $max.q=5$, $max.P=3$, and $max.Q=2$.*
+
+
+####2.	(5 pts.) Automatic ARIMA model selection:
+
+*	Run the auto.arima(…) function to fit an ARIMA model on the Box-Cox transformation of the PG1.tr dataset, and report the order of the model, the value of the model parameters and the value of the AICc and BIC information criteria.
+
+
+```{r}
+maa <- auto.arima(PG1.tr, lambda=L)
+summary(maa)
+```
+
+
+*	Use the function tsdiag(…, gof.lag=24) to assess the validity of the model you obtained in Question 1.  Based on the results you obtained comment on the validity of the model.
+
+
+```{r}
+tsdiag(maa, gof.lag=24)
+```
+
+
+*The validity of the model is rejected.  The independence hypothesis is rejected for lags of 15 and 18.*
+
+*	Use the forecast(…) function to prepare a 60 month-ahead (5-year) forecast for the electricity generation and then overlay (using a red line) the actual data for electricity generation.  To examine visually the forecast in greater detail use xlim=c(1990, 2001), and ylim=c(60,140) in your forecast plot.
+
+
+```{r}
+fc.maa <- forecast(maa, h=60)
+plot(fc.maa, xlim=c(1990, 2001), ylim=c(60,140))
+lines(PG1.te, col="red",lwd=2)
+```
+
+
+*	Use the accuracy(…) function to obtain the training and testing fit (PG1.te) metrics for the model obtained. Based on the visual inspection of the forecast plot and the out-of-sample fit statistics comment on the forecast bias. 
+
+
+```{r}
+accuracy(fc.maa,PG1.te)
+```
+
+*There is substantial degradation in the testing-set statistics resulting in a significant negative bias, $MPE=-2.43$.  The negative bias (forecast above actual) is also visually apparent from the forecast plot.*
+
+
+####3.	 (5 pts.) Manual Model Selection on $(p,0,q) (P,1,Q)_{12}$:
+
+*	Search manually for a model on the seasonally differenced series to improve on the automatic selection in Question 2.  To limit your manual search do not exceed the maximum values of p,q,P and Q that you identified in Question 1.
+
+*	Report on the best model that you identified in each case and comment on its AICc and BICc.  How do your model compares with the one found by auto.arima(…)?
+
+
+```{r}
+# Model with d=1 and D=1:
+ma11 <- Arima(PG1.tr, order=c(2,1,1), seasonal=c(0,1,1), lambda=L)
+summary(ma11)
+tsdiag(ma11, gof.lag=24)
+```
+
+
+
+*Model ma11 has better ICs accross the board and better residual diagnostics.  It is a better model than the one obtained by auto.arima* 
+
+
+
+
+####4.	(5 pts.) Manual Model Selection on $(p,1,q) (P,0,Q)_{12}$:
+
+*	Search manually for a model on the once-differenced series to improve on the automatic selection in Question 2.  To limit your manual search do not exceed the maximum values of p,q,P and Q that you identified in Question 1.
+
+*	Report on the best model that you identified in each case and comment on its AICc and BICc.  How do your model compares with the ones found in Questions 2 and 3?
+
+
+```{r}
+# Model wirh d=1 and D=0:
+ma10 <- Arima(PG1.tr, order=c(4,1,1), seasonal=c(1,0,1), lambda=L)
+summary(ma10)
+tsdiag(ma10, gof.lag=24)
+
+# Model with d=0 and D=1:
+ma01 <- Arima(PG1.tr, order=c(3,0,2), seasonal=c(0,1,1), lambda=L)
+summary(ma01)
+tsdiag(ma01, gof.lag=24)
+```
+
+*The AIC, AICc and BIC are difficult to compare across models as each model's dataset has a different number of periods (data points). Nevertheless, the ICs of the model with d=1 and D=0 have the smallest value of the ICs despite having the largest data set.  This means the model provides a better fit, as evidenced by its largest log-likelihood value.*
+
+*Of the three models the better appears to be ma10.*
+
+
+
+####5.	(5 pts.) ARIMA model for the expanded training set:
+
+*	No we redefine the training and testing sets as follows:
+
+```{r}
+PG2.tr <- window(PG, end=c(2011,12))
+PG2.te <- window(PG, start=c(2012,1))
+```
+
+*	Obtain the Box-Cox transformation parameter lambda for the training set PG2.tr
+
+*	Difference the transformed series once at the seasonal and non-seasonal levels (i.e.,d=1 and D=1) and run the adf.test(…) on the resulting series.  What do you conclude from the test?
+
+
+```{r}
+L = BoxCox.lambda(PG2.tr)
+tsdisplay(diff(diff(BoxCox(PG2.tr,L),12)), lag=48)
+adf.test(diff(BoxCox(PG1.tr,L)))
+```
+
+*The d=1, D=1 time series appears stationary.*
+
+*	If you were to fit an ARIMA model to the time series you obtained above, what would be the maximum order of the (p,1,q) (P,1,Q)_12  model? (i.e., what is the maximum values of p,P,q  and Q? )
+
+*From the ACF and PACF we could try:*
+
+* $p=4$, $q=2$.
+* $P=4$ and $Q=2$.
+
+
+####6.	 (5 pts.) Automatic ARIMA model selection on the expanded dataset:
+
+*	Run the auto.arima(…) function to fit an ARIMA model on the Box-Cox transformation of the PG2.tr dataset, and report the order of the model, the value of the model parameters and the value of the AICc and BIC information criteria?
+
+*	Execute the residual diagnostics and comment on the validity of the model.
+
+
+```{r}
+maa2 <- auto.arima(PG2.tr, lambda=L)
+summary(maa2)
+tsdiag(maa2, gof.lag=24)
+```
+
+*The ARIMA(2,1,2)(0,1,1)[12] obtained appears to be valid.*
+
+*	Prepare a 69 month-ahead forecast for the electricity generation and then overlay (using a red line) the actual data for electricity generation.  To examine visually the forecast in greater detail use xlim=c(2000, 2018), and ylim=c(60,140) in your forecast plot.
+
+
+```{r}
+fc.maa2 <- forecast(maa2, h=69)
+plot(fc.maa2, xlim=c(2000, 2018), ylim=c(60,140))
+lines(PG2.te, col="red",lwd=2)
+accuracy(fc.maa,PG1.te)
+```
+
+
+*	Based on the visual inspection of the forecast plot and the out-of-sample fit statistics comment on the forecast bias. 
+
+*I have two concers about the forecast: (1) the confidence interval is too large to be useful, and (2) the model results in a substantial out-of-sample bias, $MPE=-2.43\%$.*
+
+
+####7.	 (5 pts.) Automatic ARIMA model selection with a reduced training dataset:
+
+*	As the patterns of consumption and generation changed substantially on 2005, before setting on a forecasting model we will try reducing the training set to information posterior to 2005.  To this end we define the training data set as follows:
+
+```{r}
+PG3.tr <- window(PG, start=c(2005,1), end=c(2011,12))
+```
+
+*	Now run the auto.arima(…) function to fit a model on the PG3.tr dataset, and report the order of the model, the value of the model parameters, and the values of the AICc and BIC information coefficients.
+
+
+```{r}
+maa3 <- auto.arima(PG3.tr)
+summary(maa3)
+```
+
+
+*	Diagnose the model’s residuals to assess the validity of the model you obtained above.  Based on the results you obtained comment on the validity of the model.
+
+
+```{r}
+tsdiag(maa3, gof.lag=24)
+```
+
+*The model obtained by auto.arima appears to be valid.*
+
+
+*	Using the PG3.tr dataset, try to get a better model than the one obtained by the auto.arima(…) function, possibly changing also the number of differences.  Use the information coefficients and the validity of the model to select the best model.
+
+```{r}
+ma7 <- Arima(PG3.tr, order=c(1,1,2), seasonal=c(0,1,1))
+summary(ma7)
+tsdiag(ma7, gof.lag=24)
+```
+
+*This is the best model I could find, but it is not clear that is better than the obtained by auto.arima as it has smaller ICs, but also it has one data point less as it includes an additional non-seasonal difference.*
+
+
+*	For the best model found thus far, prepare a 69 month-ahead forecast for the electricity generation and then overlay (using a red line) the actual data for electricity generation.  To examine visually the forecast in greater detail use xlim=c(2000, 2018), and ylim=c(60,140) in your forecast plot.
+
+
+```{r}
+fc.maa3 <- forecast(maa3, h=69)
+plot(fc.maa3, xlim=c(2005, 2018), ylim=c(60,140))
+lines(PG2.te, col="red",lwd=2)
+accuracy(fc.maa3,PG2.te)
+```
+
+
+*	Based on the visual inspection of the forecast plot and the out-of-sample fit statistics comment on the forecast bias.
+
+*Visually the model appears to provide a very good out-of-sample fit.  THe testing-set bias is reasonable (less than 1%).*
+
+*	Compare the best model you obtained for the PG3.tr training set (this question) with the model you obtained for PG2.tr training set (Question 6) and comment on their out-of-sample fit statistics.  Explain why you cannot compare the AICc and BIC of both models?  
+
+*This model (Question 7) has better fit statistics, lower bias and narrower confidence intervals.  It appears a better fit overall.*
+
+*The ICs are not comparable as this model was fitted on a much smaller data set.*
+
+
+####8.	 (5 pts) Forecasting future monthly US electricity generation:
+
+*	Now define the training data set as:
+
+```{r}
+PG.tr <- window(PG, start=c(2005,1))
+```
+
+*	Use the Arima(…) function to fit the best model you have found thus far on PG.tr, run the model diagnostics to test the model validity and use it to extrapolate (forecast) the monthly generation of electricity in the US through the end of 2022 (i.e., forecast 63 months ahead).
+
+```{r}
+ma8 <- Arima(PG.tr, order=c(0,0,1), seasonal=c(2,1,1))
+summary(ma8)
+tsdiag(ma8)
+fc.ma8 <- forecast(ma8, h=63)
+plot(fc.ma8)
+```
+
