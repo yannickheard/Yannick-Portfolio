@@ -1,1 +1,0 @@
-SELECT * FROM Testing_changes
